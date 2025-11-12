@@ -14,7 +14,7 @@ const LOGIN_TIMEOUT = 6000;
 const RESOLVE_TIMEOUT = 12000;
 const JOIN_TIMEOUT = 15000;
 const ACCOUNTS_FILE = "akun.txt";
-const ALLOWED_DOMAIN = "capcut.team";
+const ALLOWED_DOMAINS = ["capcut.team"]; // Tambah domain lain dengan koma, contoh: ["capcut.team", "domain2.com"]
 const SERVER_IP = "154.26.134.200"; // IP server untuk frontend
 const PRODUCTION_DOMAIN = "premiumisme.co"; // Domain production
 const IS_PRODUCTION = process.env.NODE_ENV === 'production' || process.env.PRODUCTION === 'true';
@@ -595,11 +595,11 @@ app.post('/api/join', async (req, res) => {
             return res.status(400).json({ error: 'No valid accounts found. Format: [["email", "password"], ...] or [{"email": "...", "password": "..."}, ...]' });
         }
         
-        // Validate email domain - must be capcut.team
+        // Validate email domain - must be in ALLOWED_DOMAINS
         const invalidEmails = [];
         for (const [email] of normalizedAccounts) {
             const emailDomain = email.split('@')[1];
-            if (!emailDomain || emailDomain.toLowerCase() !== ALLOWED_DOMAIN.toLowerCase()) {
+            if (!emailDomain || !ALLOWED_DOMAINS.some(domain => emailDomain.toLowerCase() === domain.toLowerCase())) {
                 invalidEmails.push(email);
             }
         }
@@ -672,7 +672,7 @@ app.listen(PORT, HOST, () => {
     console.log(`Server running on http://${HOST}:${PORT}`);
     console.log(`Local access: http://localhost:${PORT}`);
     console.log(`Environment: ${IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-    console.log(`Allowed domain: ${ALLOWED_DOMAIN}`);
+    console.log(`Allowed domains: ${ALLOWED_DOMAINS.join(', ')}`);
     console.log(`Server IP: ${SERVER_IP}`);
     if (IS_PRODUCTION) {
         console.log(`Production domain: ${PRODUCTION_DOMAIN}`);
