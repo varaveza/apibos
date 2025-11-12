@@ -15,6 +15,9 @@ const RESOLVE_TIMEOUT = 12000;
 const JOIN_TIMEOUT = 15000;
 const ACCOUNTS_FILE = "akun.txt";
 const ALLOWED_DOMAIN = "capcut.team";
+const SERVER_IP = "154.26.134.200"; // IP server untuk frontend
+const PRODUCTION_DOMAIN = "premiumisme.co"; // Domain production
+const IS_PRODUCTION = process.env.NODE_ENV === 'production' || process.env.PRODUCTION === 'true';
 
 const app = express();
 app.use(express.json());
@@ -22,19 +25,56 @@ app.use(express.json());
 // Trust proxy untuk mendapatkan IP yang benar
 app.set('trust proxy', true);
 
-// CORS middleware - hanya dari IP yang sama
+// CORS middleware - Production: hanya allow dari premiumisme.co, Development: allow all
 app.use((req, res, next) => {
-    const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
-    const serverIP = req.connection.localAddress || '127.0.0.1';
+    const origin = req.headers.origin || req.headers.referer || '';
     
-    // Allow localhost dan IP yang sama
-    if (clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === '::ffff:127.0.0.1' || 
-        clientIP === serverIP || clientIP.includes('127.0.0.1') || clientIP.includes('localhost')) {
+    if (IS_PRODUCTION) {
+        // Production: hanya allow dari premiumisme.co dan IP server
+        const allowedOrigins = [
+            `https://${PRODUCTION_DOMAIN}`,
+            `http://${PRODUCTION_DOMAIN}`,
+            `https://www.${PRODUCTION_DOMAIN}`,
+            `http://www.${PRODUCTION_DOMAIN}`,
+            `https://${PRODUCTION_DOMAIN}/tools`,
+            `http://${PRODUCTION_DOMAIN}/tools`,
+            `http://${SERVER_IP}`,
+            `http://${SERVER_IP}/tools`
+        ];
+        
+        // Normalize origin untuk matching
+        const normalizeOrigin = (orig) => {
+            if (!orig) return '';
+            return orig.replace(/\/$/, '').toLowerCase();
+        };
+        
+        const normalizedOrigin = normalizeOrigin(origin);
+        const isAllowed = allowedOrigins.some(allowed => {
+            const normalizedAllowed = normalizeOrigin(allowed);
+            return normalizedOrigin === normalizedAllowed || normalizedOrigin.startsWith(normalizedAllowed + '/');
+        });
+        
+        if (isAllowed && origin) {
+            res.header('Access-Control-Allow-Origin', origin);
+        } else if (!origin) {
+            // Direct request (no origin header) - allow untuk server-to-server
+            res.header('Access-Control-Allow-Origin', '*');
+        } else {
+            // Origin tidak diizinkan - block
+            console.log(`[CORS] Blocked origin: ${origin}`);
+            res.header('Access-Control-Allow-Origin', 'null');
+        }
+    } else {
+        // Development: allow all
         res.header('Access-Control-Allow-Origin', '*');
-        res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     }
     
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.header('Access-Control-Expose-Headers', '*');
+    res.header('Access-Control-Max-Age', '86400'); // 24 hours
+    
+    // Handle preflight OPTIONS request
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
@@ -67,19 +107,58 @@ function checkIP(req, res, next) {
     const normalizedClientIP = normalizeIP(clientIP);
     const normalizedServerIP = normalizeIP(serverIP);
     
-    // Allow localhost, same IP, atau IP yang sama dengan server
-    if (normalizedClientIP === '127.0.0.1' || 
-        normalizedClientIP === '::1' || 
-        normalizedClientIP === normalizedServerIP ||
-        normalizedClientIP.includes('127.0.0.1') ||
-        normalizedClientIP.includes('localhost') ||
-        clientIP === serverIP) {
-        next();
+    // Log untuk debugging
+    console.log(`[checkIP] Client IP: ${clientIP} (normalized: ${normalizedClientIP}), Server IP: ${serverIP} (normalized: ${normalizedServerIP})`);
+    
+    if (IS_PRODUCTION) {
+        // Production: hanya allow dari IP server dan localhost (untuk maintenance)
+        const allowedIPs = [
+            SERVER_IP,
+            '127.0.0.1',
+            '::1',
+            'localhost'
+        ];
+        
+        const isAllowed = allowedIPs.some(allowed => 
+            normalizedClientIP === allowed ||
+            normalizedClientIP.includes(allowed) ||
+            clientIP === allowed ||
+            clientIP.includes(allowed) ||
+            normalizedClientIP === normalizedServerIP
+        );
+        
+        if (isAllowed) {
+            console.log(`[checkIP] Access allowed for IP: ${normalizedClientIP} (Production)`);
+            next();
+        } else {
+            console.log(`[checkIP] Access denied for IP: ${normalizedClientIP} (Production)`);
+            res.status(403).json({ 
+                error: 'Access denied', 
+                message: `Only requests from ${SERVER_IP} are allowed in production. Your IP: ${normalizedClientIP}` 
+            });
+        }
     } else {
-        res.status(403).json({ 
-            error: 'Access denied', 
-            message: `Only requests from the same IP are allowed. Your IP: ${normalizedClientIP}, Server IP: ${normalizedServerIP}` 
-        });
+        // Development: lebih permisif
+        if (normalizedClientIP === '127.0.0.1' || 
+            normalizedClientIP === '::1' || 
+            normalizedClientIP === normalizedServerIP ||
+            normalizedClientIP.includes('127.0.0.1') ||
+            normalizedClientIP.includes('localhost') ||
+            clientIP === serverIP ||
+            !clientIP ||
+            clientIP === '::1' ||
+            clientIP.startsWith('::ffff:127.0.0.1') ||
+            clientIP.startsWith('::ffff:192.168.') ||
+            clientIP.startsWith('::ffff:10.')) {
+            console.log(`[checkIP] Access allowed for IP: ${normalizedClientIP} (Development)`);
+            next();
+        } else {
+            console.log(`[checkIP] Access denied for IP: ${normalizedClientIP} (Development)`);
+            res.status(403).json({ 
+                error: 'Access denied', 
+                message: `Only requests from the same IP are allowed. Your IP: ${normalizedClientIP}, Server IP: ${normalizedServerIP}` 
+            });
+        }
     }
 }
 
@@ -469,7 +548,15 @@ async function processAccountsInBatches(accounts, link, workers) {
 // -----------------------
 // API Endpoint
 // -----------------------
-app.post('/api/join', checkIP, async (req, res) => {
+app.post('/api/join', async (req, res) => {
+    // Log request untuk debugging
+    console.log(`[POST /api/join] Request received from IP: ${req.ip || req.connection.remoteAddress}`);
+    console.log(`[POST /api/join] Origin: ${req.headers.origin || 'none'}`);
+    console.log(`[POST /api/join] Body:`, req.body);
+    
+    // Check IP tapi jangan block - hanya log
+    const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || '';
+    console.log(`[POST /api/join] Client IP: ${clientIP}`);
     try {
         const { link, accounts, workers = 5 } = req.body;
         
@@ -526,9 +613,48 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
 });
 
+// Test endpoint untuk debugging CORS
+app.get('/api/test', (req, res) => {
+    console.log('[GET /api/test] Request received');
+    console.log('[GET /api/test] Origin:', req.headers.origin || 'none');
+    console.log('[GET /api/test] IP:', req.ip || req.connection.remoteAddress);
+    res.json({ 
+        status: 'ok', 
+        message: 'CORS test successful',
+        origin: req.headers.origin || 'none',
+        ip: req.ip || req.connection.remoteAddress
+    });
+});
+
+app.post('/api/test', (req, res) => {
+    console.log('[POST /api/test] Request received');
+    console.log('[POST /api/test] Origin:', req.headers.origin || 'none');
+    console.log('[POST /api/test] IP:', req.ip || req.connection.remoteAddress);
+    console.log('[POST /api/test] Body:', req.body);
+    res.json({ 
+        status: 'ok', 
+        message: 'CORS POST test successful',
+        origin: req.headers.origin || 'none',
+        ip: req.ip || req.connection.remoteAddress,
+        received: req.body
+    });
+});
+
 const PORT = process.env.PORT || 8001;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+const HOST = process.env.HOST || '0.0.0.0'; // Listen di semua interface (localhost, IP server, dll)
+
+app.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
+    console.log(`Local access: http://localhost:${PORT}`);
+    console.log(`Environment: ${IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'}`);
     console.log(`Allowed domain: ${ALLOWED_DOMAIN}`);
+    console.log(`Server IP: ${SERVER_IP}`);
+    if (IS_PRODUCTION) {
+        console.log(`Production domain: ${PRODUCTION_DOMAIN}`);
+        console.log(`CORS: Only allowing requests from https://${PRODUCTION_DOMAIN}`);
+    } else {
+        console.log(`CORS: Allowing all origins (development mode)`);
+    }
+    console.log(`Health check: http://localhost:${PORT}/health`);
 });
 
