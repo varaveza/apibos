@@ -585,6 +585,21 @@ app.post('/api/join', async (req, res) => {
             return res.status(400).json({ error: 'No valid accounts found. Format: [["email", "password"], ...] or [{"email": "...", "password": "..."}, ...]' });
         }
         
+        // Validate email domain - must be capcut.team
+        const invalidEmails = [];
+        for (const [email] of normalizedAccounts) {
+            const emailDomain = email.split('@')[1];
+            if (!emailDomain || emailDomain.toLowerCase() !== ALLOWED_DOMAIN.toLowerCase()) {
+                invalidEmails.push(email);
+            }
+        }
+        
+        if (invalidEmails.length > 0) {
+            return res.status(400).json({ 
+                message: 'silahkan beli akun capcut basic di https://t.me/premiumisme_bot'
+            });
+        }
+        
         const startTime = Date.now();
         const { results, stats } = await processAccountsInBatches(normalizedAccounts, link, parseInt(workers) || 5);
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
