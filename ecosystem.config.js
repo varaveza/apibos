@@ -1,6 +1,6 @@
 module.exports = {
   apps: [{
-    name: 'capcut-join-api',
+    name: 'ccteam',
     script: 'server.js',
     instances: 1,
     exec_mode: 'fork',
@@ -8,6 +8,7 @@ module.exports = {
     max_memory_restart: '500M',
     env: {
       NODE_ENV: 'production',
+      PRODUCTION: 'true',
       PORT: 8001
     },
     error_file: './logs/pm2-error.log',

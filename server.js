@@ -138,18 +138,28 @@ function checkIP(req, res, next) {
             });
         }
     } else {
-        // Development: lebih permisif
-        if (normalizedClientIP === '127.0.0.1' || 
-            normalizedClientIP === '::1' || 
+        // Development: lebih permisif - allow dari localhost, SERVER_IP, dan private IPs
+        const allowedIPsDev = [
+            '127.0.0.1',
+            '::1',
+            'localhost',
+            SERVER_IP,
+            normalizedServerIP
+        ];
+        
+        const isAllowed = allowedIPsDev.some(allowed => 
+            normalizedClientIP === allowed ||
+            normalizedClientIP.includes(allowed) ||
+            clientIP === allowed ||
+            clientIP.includes(allowed) ||
             normalizedClientIP === normalizedServerIP ||
-            normalizedClientIP.includes('127.0.0.1') ||
-            normalizedClientIP.includes('localhost') ||
-            clientIP === serverIP ||
             !clientIP ||
-            clientIP === '::1' ||
             clientIP.startsWith('::ffff:127.0.0.1') ||
             clientIP.startsWith('::ffff:192.168.') ||
-            clientIP.startsWith('::ffff:10.')) {
+            clientIP.startsWith('::ffff:10.')
+        );
+        
+        if (isAllowed) {
             console.log(`[checkIP] Access allowed for IP: ${normalizedClientIP} (Development)`);
             next();
         } else {
