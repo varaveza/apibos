@@ -1,0 +1,7 @@
+node_modules/
+logs/
+*.log
+result_*.txt
+akun.txt
+.env
+
